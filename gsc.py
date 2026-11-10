@@ -1,12 +1,9 @@
 """Google Search Console 客户端（零依赖，OAuth via ADC）。
 
-凭据：
-  默认读 %APPDATA%\\gcloud\\application_default_credentials.json（ADC），
-  也支持 SEOGEO_AUTH_DIR 下的 gsc_adc.json（交付客户时放客户自己的）。
-
-要求 ADC 的 refresh token 带 scope:
-  https://www.googleapis.com/auth/webmasters.readonly
-若返回 403 insufficient scope，用项目里的 scripts/google_ads_auth.py 重新授权并追加该 scope。
+凭据（由词真语 Deploy 统一管理，禁止写进代码）：
+  1. CIZHENYU_AUTH_DIR / SEOGEO_AUTH_DIR 下 google/gsc.json、google/gsc_adc.json、gsc_adc.json
+  2. 环境变量 GOOGLE_APPLICATION_CREDENTIALS（仅由 Deploy 注入进程 env）
+  3. 最后回退 %APPDATA%\\gcloud\\application_default_credentials.json
 """
 
 from __future__ import annotations
@@ -20,9 +17,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import cizhenyu_auth
+
 API = "https://searchconsole.googleapis.com"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-DEFAULT_AUTH_DIR = Path(r"C:\scripts\seogeo-auth-config")
 ADC_FALLBACK = Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json"
 
 _cache = {"token": None, "exp": 0}
@@ -32,14 +30,39 @@ class GscError(RuntimeError):
     pass
 
 
-def auth_dir() -> Path:
-    env = os.environ.get("SEOGEO_AUTH_DIR", "").strip()
-    return Path(env) if env else DEFAULT_AUTH_DIR
-
-
 def adc_path() -> Path:
-    candidate = auth_dir() / "gsc_adc.json"
-    return candidate if candidate.exists() else ADC_FALLBACK
+    env_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if env_path and Path(env_path).is_file():
+        return Path(env_path)
+
+    try:
+        base = cizhenyu_auth.auth_dir()
+    except cizhenyu_auth.AuthError as exc:
+        if ADC_FALLBACK.is_file():
+            return ADC_FALLBACK
+        raise GscError(str(exc)) from exc
+
+    for rel in ("google/gsc_adc.json", "gsc_adc.json"):
+        candidate = base / rel
+        if candidate.is_file():
+            return candidate
+
+    meta = base / "google" / "gsc.json"
+    if meta.is_file():
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8-sig"))
+            pointed = cizhenyu_auth.first_str(data, "credentialsPath", "credentials_path", "path")
+            if pointed and Path(pointed).is_file():
+                return Path(pointed)
+        except (OSError, ValueError, TypeError):
+            pass
+
+    if ADC_FALLBACK.is_file():
+        return ADC_FALLBACK
+    raise GscError(
+        f"找不到 GSC ADC。请在 Deploy 凭证中配置 gsc.credentialsPath，"
+        f"或将 ADC 放到 {base / 'google' / 'gsc_adc.json'}"
+    )
 
 
 def access_token() -> str:
@@ -65,7 +88,7 @@ def access_token() -> str:
         detail = exc.read().decode("utf-8", "replace")[:200]
         raise GscError(f"刷新令牌失败 HTTP {exc.code}: {detail}") from exc
     _cache["token"] = data["access_token"]
-    _cache["exp"] = __import__("time").time() + int(data.get("expires_in", 3600))
+    _cache["exp"] = time.time() + int(data.get("expires_in", 3600))
     return _cache["token"]
 
 
