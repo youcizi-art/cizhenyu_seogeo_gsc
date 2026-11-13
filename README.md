@@ -1,30 +1,34 @@
-# seogeo-gsc（全局工具）
+# seogeo-gsc（Google Search Console MCP）
 
-Google Search Console 的 MCP 服务 + CLI（真实查询词、点击、展现、排名、sitemap）。
+真实查询词、点击、展现、排名、sitemap。凭据由词真语 Deploy 注入，**禁止把密钥写进代码**。
 
-## 凭据
+## 客户配置教程（Deploy）
 
-默认读机器上的 ADC：`%APPDATA%\gcloud\application_default_credentials.json`。
-若 `C:\scripts\seogeo-auth-config\gsc_adc.json` 存在，则优先用它（交付客户时放客户自己的 ADC）。
+在 Deploy「凭证 / GSC」按引导操作；完整步骤与官方链接见软件内「配置教程」。摘要如下：
 
-**必须含 scope `https://www.googleapis.com/auth/webmasters.readonly`。**
-第一次用若报 `403 insufficient scope`，执行（会弹浏览器授权）：
-
-```powershell
-& 'C:\Users\Administrator\AppData\Local\Python\pythoncore-3.14-64\python.exe' `
-  'U:\seogeo\workflow\seogeo\scripts\google_ads_auth.py' `
-  -c "C:\scripts\seogeo-auth-config\client_secret.json" `
-  --scope "https://www.googleapis.com/auth/webmasters.readonly" `
-  --manual-start
-```
-
-拿到回调 URL 后：
+1. [Search Console](https://search.google.com/search-console) 验证站点，授权账号有权限  
+2. Cloud 项目启用 [Search Console API](https://console.cloud.google.com/apis/library/searchconsole.googleapis.com)  
+3. [创建 OAuth 桌面客户端](https://console.cloud.google.com/apis/credentials)  
+4. 用 gcloud 生成 ADC（**必须含** `webmasters.readonly`）：
 
 ```powershell
-... google_ads_auth.py -c "...client_secret.json" --manual-finish "<回调 URL>"
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/webmasters.readonly,https://www.googleapis.com/auth/cloud-platform
 ```
 
-> 该授权会同时保留 `adwords` scope，因此 Google Ads 关键词能力不受影响。
+5. 将 `%APPDATA%\gcloud\application_default_credentials.json` 的**绝对路径**填入 Deploy「ADC JSON 路径」并保存  
+6. 安装启用 GSC 后调用 `gsc_sites` 验证  
+
+官方入门：[Search Console API Getting Started](https://developers.google.com/webmaster-tools/v1/how-tos/getting-started)  
+ADC 说明：[Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials)
+
+## 凭据读取优先级（工具运行时）
+
+1. 进程环境 `GOOGLE_APPLICATION_CREDENTIALS`（Deploy 从 vault 注入）  
+2. `CIZHENYU_AUTH_DIR` / `SEOGEO_AUTH_DIR` 下 `google/gsc_adc.json`、`gsc_adc.json`  
+3. vault 元数据 `google/gsc.json` 里的 `credentialsPath`  
+4. 回退 `%APPDATA%\gcloud\application_default_credentials.json`
+
+ADC 必须是 `type=authorized_user` 且含 `refresh_token`。缺 scope 时报 `403`：删掉旧 ADC 按上面 scopes 重授权。
 
 ## CLI
 
@@ -38,40 +42,8 @@ python server.py gsc_breakdown    --json "{\"site_url\":\"sc-domain:example.com\
 python server.py gsc_sitemaps     --json "{\"site_url\":\"sc-domain:example.com\"}"
 ```
 
-`site_url` 用 GSC 里的原样值：域名属性写 `sc-domain:example.com`，URL 前缀属性写 `https://example.com/`。
+`site_url` 用 GSC 里的原样值：域名属性 `sc-domain:example.com`，URL 前缀 `https://example.com/`。
 
-## MCP 挂载
+## MCP
 
-```yaml
-- id: mcp-seogeo-gsc
-  name: "@deepseek-ai/dsh-mcp-client"
-  config:
-    serverName: seogeo_gsc
-    transport: stdio
-    command: "C:/Users/Administrator/AppData/Local/Python/pythoncore-3.14-64/python.exe"
-    args: ["C:/scripts/seogeo-gsc/server.py"]
-    cwd: "C:/scripts/seogeo-gsc"
-    failOnStartupError: false
-    toolCallTimeoutMs: 120000
-```
-
-## 在流程里的位置
-
-- 步骤 1/3：有站客户用 `gsc_top_queries` 拿真实查询词，补 autocomplete 覆盖不到的搜索。
-- 步骤 7：效果复盘的主数据源（点击/展现/排名变化）。
-- 上线验收：`gsc_sitemaps` + 收录诊断。
-
-## Windows PowerShell 注意
-
-PowerShell 调原生程序会吃掉内层双引号，`--json '{"a":"b"}'` 常失败。三种可靠写法：
-
-```powershell
-# 1) 用简单参数（推荐）
-python server.py dfs_search_intent --keywords "oem nail lamp,gel nail lamp"
-
-# 2) 用参数文件
-python server.py dfs_serp_google --args-file args.json
-
-# 3) 转义内层引号
-python server.py dfs_keyword_difficulty --json '{\"keywords\":[\"uv nail lamp\"]}'
-```
+由 Deploy 导出/同步；本地调试时设置 `CIZHENYU_AUTH_DIR` 指向工作目录 `credentials`。
