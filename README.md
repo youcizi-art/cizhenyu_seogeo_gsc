@@ -1,6 +1,6 @@
 # seogeo-gsc（Google Search Console MCP）
 
-真实查询词、点击、展现、排名、sitemap。凭据由词真语 Deploy 注入。
+真实查询词、点击、展现、排名、sitemap。凭据由磁帧鱼 Deploy 注入。
 
 ## 推荐配置（Deploy 一键沿用 Ads）
 

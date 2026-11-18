@@ -1,6 +1,6 @@
 """Google Search Console 客户端（零依赖，OAuth via ADC）。
 
-凭据（由词真语 Deploy 统一管理，禁止写进代码）：
+凭据（由磁帧鱼 Deploy 统一管理，禁止写进代码）：
   1. CIZHENYU_AUTH_DIR / SEOGEO_AUTH_DIR 下 google/gsc.json、google/gsc_adc.json、gsc_adc.json
   2. 环境变量 GOOGLE_APPLICATION_CREDENTIALS（仅由 Deploy 注入进程 env）
   3. 最后回退 %APPDATA%\\gcloud\\application_default_credentials.json
